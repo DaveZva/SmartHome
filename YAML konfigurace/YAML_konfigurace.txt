@@ -1,0 +1,172 @@
+Nastavení automatizace pro osvětlení
+
+----------------------------------------------------------------------------------------
+
+alias: Osvetleni_kurnik_zima
+description: ""
+triggers:
+  - at: "07:00:00"
+    trigger: time
+conditions:
+  - condition: time
+    after: "07:00:00"
+    before: "09:00:00"
+  - condition: template
+    value_template: |
+      {{ now().month in [11, 12, 1, 2] }}
+actions:
+  - data:
+      topic: chicken/led
+      payload: "ON"
+    action: mqtt.publish
+
+----------------------------------------------------------------------------------------
+
+Nastavení automatizace pro ohřev
+
+----------------------------------------------------------------------------------------
+
+alias: Start Chicken Heater
+description: Každou hodinu kontroluje teplotu a podle toho řídí topení
+triggers:
+  - minutes: 0
+    trigger: time_pattern
+conditions: []
+actions:
+  - choose:
+      - conditions:
+          - condition: numeric_state
+            entity_id: sensor.venkovni_teplota_bme280
+            below: 5
+        sequence:
+          - target:
+              entity_id: switch.start_heater_2
+            action: switch.turn_on
+            data: {}
+          - data:
+              title: Topení zapnuto
+              message: Teplota pod 5°C.
+            action: persistent_notification.create
+      - conditions:
+          - condition: numeric_state
+            entity_id: sensor.venkovni_teplota_bme280
+            above: 5.1
+        sequence:
+          - target:
+              entity_id: switch.start_heater_2
+            action: switch.turn_off
+            data: {}
+          - data:
+              title: Topení vypnuto
+              message: Teplota nad 5°C.
+            action: persistent_notification.create
+mode: single
+
+----------------------------------------------------------------------------------------
+
+Kompletní configuration.yaml z Home Assistantu
+
+----------------------------------------------------------------------------------------
+
+
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+lovelace:
+  resources:
+    - url: /hacsfiles/lovelace-battery-entity-row/battery-entity-row.js
+      type: module
+
+mqtt:
+  sensor:
+    - name: "Venkovní teplota - BME280"
+      state_topic: "home/garden/temperature"
+      unit_of_measurement: "°C"
+      device_class: temperature
+      unique_id: "venkovni_teplota_bme280"
+    - name: "Venkovní vlhkost - BME280"
+      state_topic: "home/garden/humidity"
+      unit_of_measurement: "%"
+      device_class: humidity
+      unique_id: "venkovni_vlhkost_bme280"
+    - name: "Venkovní tlak - BME280"
+      state_topic: "home/garden/air_pressure"
+      unit_of_measurement: "hPa"
+      device_class: pressure
+      unique_id: "venkovni_tlak_bme280"
+    - name: "Vlhkost půdy"
+      state_topic: "home/garden/soil_moisture"
+      unit_of_measurement: "%"
+      device_class: humidity
+      unique_id: "vlhkost_pudy"
+    - name: "Baterie - Venek"
+      state_topic: "home/garden/battery_voltage"
+      unit_of_measurement: "V"
+      device_class: voltage
+      unique_id: "venkovni_baterka"
+  switch:
+    - name: "Start Heater"
+      state_topic: "home/heater/set"
+      command_topic: "home/heater/set"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      unique_id: "start_heater"
+    - name: "Start Light"
+      state_topic: "home/light/set"
+      command_topic: "home/light/set"
+      payload_on: "ON"
+      payload_off: "OFF"
+      optimistic: false
+      unique_id: "start_light"       
+influxdb:
+  host: localhost
+  port: 8086
+  database: homeassistant
+  username: "username"
+  password: "password"
+  max_retries: 3
+  default_measurement: state  
+  include:
+    entities:  # Explicitně přidáme MQTT entity
+      - sensor.venkovni_teplota_bme280
+      - sensor.venkovni_vlhkost_bme280
+      - sensor.venkovni_tlak_bme280
+      - sensor.vlhkost_pudy
+      - sensor.venkovni_teplota_tepelko
+      - sensor.venkovni_baterka
+      - switch.switch_heater
+      - switch.switch_light
+    domains:
+      - sensor
+      - switch
+      - binary_sensor  # Pokud máte binární senzory
+      - climate        # Pokud máte klimatizace nebo termostaty
+template:
+  - sensor:
+      - name: "Odpadový harmonogram"
+        state: >
+          {% set events = states.calendar.svoz_odpadu.attributes.start_time %}
+          {% if events %}
+            {% set relative_time = (as_timestamp(events) - as_timestamp(now())) | timestamp_custom('za %d dní', true) %}
+            {% set date = (as_timestamp(events)) | timestamp_custom('%d.%m.') %}
+            {{ relative_time + "\n" + date }}
+          {% else %}
+            Žádné události
+          {% endif %}
+resources:
+  - url: /local/influxdb-query-card.js
+    type: module    
+
+----------------------------------------------------------------------------------------
+
+
+
